@@ -1,5 +1,7 @@
 # 🎨 Image Studio - 您的 AI 视觉创作套件
 
+[![一键部署到Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/milan-chen/image-studio&repository-name=image-studio)
+
 [![语言](https://img.shields.io/badge/language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
 [![框架](https://img.shields.io/badge/framework-React-cyan.svg)](https://reactjs.org/)
 [![API](https://img.shields.io/badge/API-Gemini-purple.svg)](https://ai.google.dev/)

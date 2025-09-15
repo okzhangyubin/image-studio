@@ -34,7 +34,7 @@ const handleApiError = (error: unknown): Error => {
     }
     
     if (message.includes('invalid_argument')) {
-      return new Error("您的输入无效。请检查您的提示词或上传的图片后重试。");
+      return new Error("您的输入无效。请检查您的提示词或上传的图片后重试，也可能是此模型需要搭配付费KEY。");
     }
   }
   
