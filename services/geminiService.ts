@@ -1,7 +1,8 @@
 // services/geminiService.ts
 
-import { GoogleGenAI, Modality, GenerateImagesConfig, Type } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateImagesConfig } from "@google/genai";
 import { ImageStyle, CameraMovement, ImageModel, AspectRatio, InspirationStrength, GeneratedImage } from '../types';
+import { generateComicPanelPrompts, generateVideoStoryboard } from './openAITextService';
 
 const stylePrompts = {
   [ImageStyle.ILLUSTRATION]: "A modern flat illustration style. Use simple shapes, bold colors, and clean lines. Avoid gradients and complex textures. The characters and objects should be stylized and minimalist. Maintain consistency in this flat illustration style.",
@@ -136,50 +137,9 @@ export const generateComicStrip = async (story: string, style: ImageStyle, apiKe
         throw new Error("API Key is required to generate images.");
     }
     const ai = new GoogleGenAI({ apiKey });
+    const panelPrompts = await generateComicPanelPrompts(story, stylePrompts[style], numberOfImages);
 
     try {
-        // Step 1: Generate detailed prompts for each panel using a text model
-        const promptGenerationResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: {
-                parts: [{
-                    text: `
-                        **Task:** You are a master story book prompter. Your goal is to break down a story into a series of detailed, visually descriptive prompts for an image generation AI.
-
-                        **User's Story Idea:**
-                        ---
-                        ${story}
-                        ---
-
-                        **CRITICAL INSTRUCTIONS:**
-                        1.  **Generate Prompts:** Create exactly ${numberOfImages} distinct prompts, one for each panel of the story strip.
-                        2.  **Visual Detail:** Each prompt must be a rich, detailed visual description. Describe characters, actions, setting, mood, and composition.
-                        3.  **Style Integration:** Each prompt MUST explicitly include and adhere to this art style: "${stylePrompts[style]}".
-                        4.  **Consistency:** Ensure prompts are written to maintain character and scene consistency across the panels. For example, if a character is "a young boy with red hair", he should be described that way in all relevant prompts.
-                        5.  **Format:** You MUST return a JSON array containing exactly ${numberOfImages} strings. Do not include any other text or formatting.
-                    `
-                }]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.STRING,
-                        description: 'A detailed visual prompt for a single story book panel.'
-                    }
-                }
-            }
-        });
-
-        const jsonStr = promptGenerationResponse.text.trim();
-        const panelPrompts = JSON.parse(jsonStr);
-
-        if (!Array.isArray(panelPrompts) || panelPrompts.length !== numberOfImages) {
-            throw new Error(`AI failed to generate the correct number of prompts. Expected ${numberOfImages}, got ${panelPrompts.length}.`);
-        }
-
-        // Step 2: Generate an image for each prompt using Imagen
         const imageGenerationPromises = panelPrompts.map(panelPrompt => {
             return ai.models.generateImages({
                 model: ImageModel.IMAGEN,
@@ -198,7 +158,6 @@ export const generateComicStrip = async (story: string, style: ImageStyle, apiKe
             if (response.generatedImages && response.generatedImages.length > 0) {
                 return `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
             }
-            // Throw an error or return a placeholder if a panel fails
             throw new Error("One or more story panels failed to generate.");
         });
 
@@ -247,88 +206,23 @@ export const editComicPanel = async (originalImageBase64: string, prompt: string
 };
 
 
-export const generateVideoScriptsForComicStrip = async (story: string, images: GeneratedImage[], apiKey: string): Promise<string[]> => {
-    if (!apiKey) {
-      throw new Error("API Key is required to generate video scripts.");
-    }
-    const ai = new GoogleGenAI({ apiKey });
-  
-    try {
-        const imageParts = images.map(img => base64ToGenerativePart(img.src));
-        
-        const textPart = { text: `
-            **任务:** 你是一位专业的电影导演，你的目标是为一部连环画创作详细的视频分镜脚本。
-            **整体故事:** "${story}"
+export const generateVideoScriptsForComicStrip = async (story: string, images: GeneratedImage[]): Promise<string[]> => {
+    const storyboardSegments = await generateVideoStoryboard(story, images);
 
-            **指令:**
-            1.  分析所提供的图像序列。
-            2.  为每一张图片，生成一个详细的、包含丰富镜头语言的单句视频提示词（中文）。
-            3.  每个提示词必须包含摄影机运镜、景别、核心动作和情感基调。
-            4.  动作描述应生动具体，描述画面中正在发生或暗示的动作，而不是静态地描述图片。
-            5.  你必须返回一个包含 ${images.length} 个对象的JSON数组，严格遵守指定的 schema。
-        ` };
+    const scripts = storyboardSegments.map((item) => {
+        return `${item.cameraMovement}的${item.shotType}，${item.actionDescription}画面充满${item.emotionalTone}的氛围。`;
+    });
 
-        const allParts = [textPart, ...imageParts];
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: allParts },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            cameraMovement: { 
-                                type: Type.STRING,
-                                description: "电影化的摄影机运镜。例如：'缓慢推镜'、'固定镜头'、'向左摇镜'、'升降镜头下降'。"
-                            },
-                            shotType: {
-                                type: Type.STRING,
-                                description: "景别和机位角度。例如：'特写镜头'、'远景镜头'、'低角度镜头'。"
-                            },
-                            actionDescription: {
-                                type: Type.STRING,
-                                description: "生动描述核心动作的单句话。"
-                            },
-                            emotionalTone: {
-                                type: Type.STRING,
-                                description: "场景要传达的情绪。例如：'紧张悬疑'、'欢乐活泼'、'平静忧郁'。"
-                            }
-                        },
-                        required: ["cameraMovement", "shotType", "actionDescription", "emotionalTone"],
-                    },
-                },
-            },
-        });
-        
-        const jsonStr = response.text.trim();
-        const result = JSON.parse(jsonStr);
-        if (!Array.isArray(result) || result.some(item => typeof item.actionDescription !== 'string')) {
-            throw new Error("AI returned an invalid script format.");
+    if (scripts.length !== images.length) {
+        console.warn(`OpenAI兼容API返回的镜头脚本数量 (${scripts.length}) 与图片数量 (${images.length}) 不一致，将进行裁剪或填充。`);
+        const adjustedScripts = new Array(images.length).fill('');
+        for (let i = 0; i < Math.min(scripts.length, images.length); i++) {
+            adjustedScripts[i] = scripts[i];
         }
-        
-        const scripts = result.map((item: {cameraMovement: string, shotType: string, actionDescription: string, emotionalTone: string}) => {
-            return `${item.cameraMovement}的${item.shotType}，${item.actionDescription}画面充满${item.emotionalTone}的氛围。`;
-        });
-
-
-        if (scripts.length !== images.length) {
-            console.warn(`AI returned ${scripts.length} scripts, but expected ${images.length}. Truncating/padding.`);
-            // Adjust the array size to match the number of images
-            const adjustedScripts = new Array(images.length).fill('');
-            for (let i = 0; i < Math.min(scripts.length, images.length); i++) {
-                adjustedScripts[i] = scripts[i];
-            }
-            return adjustedScripts;
-        }
-
-        return scripts;
-
-    } catch (error) {
-        throw handleApiError(error);
+        return adjustedScripts;
     }
+
+    return scripts;
 };
 
 
