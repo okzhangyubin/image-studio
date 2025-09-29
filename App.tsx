@@ -275,7 +275,7 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const scripts = await generateVideoScriptsForComicStrip(comicStripStory, comicStripImages, apiKey);
+      const scripts = await generateVideoScriptsForComicStrip(comicStripStory, comicStripImages);
       setComicStripVideoScripts(scripts);
       setComicStripVideoGenerationPhase('editing');
     } catch (err) {
