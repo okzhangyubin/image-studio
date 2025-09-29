@@ -1,7 +1,18 @@
 // services/geminiService.ts
 
-import { GoogleGenAI, Modality, GenerateImagesConfig, Type } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateImagesConfig } from "@google/genai";
 import { ImageStyle, CameraMovement, ImageModel, AspectRatio, InspirationStrength, GeneratedImage } from '../types';
+import {
+  generateComicPanelPrompts,
+  generateVideoStoryboard,
+  generateWikiCardPrompts,
+  generateTextToImagePrompt,
+  generateImageEditPrompt,
+  generateStyleInspirationPrompt,
+  generateInpaintingPrompt,
+  generateVideoPrompt,
+  generateVideoTransitionPrompt,
+} from './openAITextService';
 
 const stylePrompts = {
   [ImageStyle.ILLUSTRATION]: "A modern flat illustration style. Use simple shapes, bold colors, and clean lines. Avoid gradients and complex textures. The characters and objects should be stylized and minimalist. Maintain consistency in this flat illustration style.",
@@ -74,53 +85,52 @@ export const generateIllustratedCards = async (prompt: string, style: ImageStyle
   const ai = new GoogleGenAI({ apiKey });
 
   try {
+    const cardPrompts = await generateWikiCardPrompts(prompt, stylePrompts[style], 4);
+
     if (model === ImageModel.NANO_BANANA) {
-      const fullPrompt = `
-        **Primary Goal:** Generate a set of exactly 4 distinct, separate educational infographic images to explain the concept of: "${prompt}".
+      const responses = await Promise.all(cardPrompts.map(async (cardPrompt) => {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: {
+            parts: [{ text: cardPrompt }],
+          },
+          config: {
+            responseModalities: [Modality.IMAGE, Modality.TEXT],
+          },
+        });
 
-        **CRITICAL REQUIREMENTS FOR ALL 4 IMAGES:**
-        1.  **Quantity:** You MUST generate exactly FOUR separate images. Do not generate a single composite image.
-        2.  **Aspect Ratio:** Each of the four images MUST be in a 16:9 widescreen aspect ratio.
-        3.  **Style:** Adhere strictly to the following style: ${stylePrompts[style]}. Use a solid, simple background color for all images to ensure the main content stands out.
-        4.  **Text:** All text must be in clear, concise, and readable English. No Chinese characters. Use text to label key elements and provide brief explanations.
-        5.  **Consistency:** Maintain a unified color palette and artistic style across all 4 images, so they look like a cohesive series.
-        6.  **Content Progression:** Each image should logically build upon the previous one. They should illustrate different key aspects or steps of the concept, forming a clear, step-by-step visual narrative from the first image to the last.
-      `;
-      const response = await ai.models.generateContent({
-        model: model,
-        contents: {
-          parts: [{ text: fullPrompt }],
-        },
-        config: {
-          responseModalities: [Modality.IMAGE, Modality.TEXT],
-        },
-      });
-
-      const images: string[] = [];
-      if (response.candidates && response.candidates.length > 0) {
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData && part.inlineData.data) {
-            const mimeType = part.inlineData.mimeType;
-            images.push(`data:${mimeType};base64,${part.inlineData.data}`);
-          }
+        const imagePart = response.candidates?.[0]?.content?.parts.find(part => part.inlineData?.data);
+        if (!imagePart?.inlineData?.data) {
+          throw new Error('AI未能生成图解卡片。');
         }
+        return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+      }));
+
+      if (responses.length > 0) {
+        return responses;
       }
-      if (images.length > 0) return images.slice(0, 4);
 
     } else if (model === ImageModel.IMAGEN) {
-      const fullPrompt = `An educational infographic in a 16:9 widescreen aspect ratio. The image should visually explain the concept of "${prompt}". Art Style: ${stylePrompts[style]}. The image must contain clear, concise, and readable English text to label key elements and provide brief explanations. No Chinese characters.`;
-      const response = await ai.models.generateImages({
-        model: model,
-        prompt: fullPrompt,
-        config: {
-          numberOfImages: 4,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: '16:9',
-        },
-      });
+      const responses = await Promise.all(cardPrompts.map(async (cardPrompt) => {
+        const response = await ai.models.generateImages({
+          model: model,
+          prompt: cardPrompt,
+          config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '16:9',
+          },
+        });
 
-      if (response.generatedImages && response.generatedImages.length > 0) {
-        return response.generatedImages.map(img => `data:image/jpeg;base64,${img.image.imageBytes}`);
+        const generated = response.generatedImages?.[0]?.image?.imageBytes;
+        if (!generated) {
+          throw new Error('AI未能生成图解卡片。');
+        }
+        return `data:image/jpeg;base64,${generated}`;
+      }));
+
+      if (responses.length > 0) {
+        return responses;
       }
     }
 
@@ -136,50 +146,9 @@ export const generateComicStrip = async (story: string, style: ImageStyle, apiKe
         throw new Error("API Key is required to generate images.");
     }
     const ai = new GoogleGenAI({ apiKey });
+    const panelPrompts = await generateComicPanelPrompts(story, stylePrompts[style], numberOfImages);
 
     try {
-        // Step 1: Generate detailed prompts for each panel using a text model
-        const promptGenerationResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: {
-                parts: [{
-                    text: `
-                        **Task:** You are a master story book prompter. Your goal is to break down a story into a series of detailed, visually descriptive prompts for an image generation AI.
-
-                        **User's Story Idea:**
-                        ---
-                        ${story}
-                        ---
-
-                        **CRITICAL INSTRUCTIONS:**
-                        1.  **Generate Prompts:** Create exactly ${numberOfImages} distinct prompts, one for each panel of the story strip.
-                        2.  **Visual Detail:** Each prompt must be a rich, detailed visual description. Describe characters, actions, setting, mood, and composition.
-                        3.  **Style Integration:** Each prompt MUST explicitly include and adhere to this art style: "${stylePrompts[style]}".
-                        4.  **Consistency:** Ensure prompts are written to maintain character and scene consistency across the panels. For example, if a character is "a young boy with red hair", he should be described that way in all relevant prompts.
-                        5.  **Format:** You MUST return a JSON array containing exactly ${numberOfImages} strings. Do not include any other text or formatting.
-                    `
-                }]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.STRING,
-                        description: 'A detailed visual prompt for a single story book panel.'
-                    }
-                }
-            }
-        });
-
-        const jsonStr = promptGenerationResponse.text.trim();
-        const panelPrompts = JSON.parse(jsonStr);
-
-        if (!Array.isArray(panelPrompts) || panelPrompts.length !== numberOfImages) {
-            throw new Error(`AI failed to generate the correct number of prompts. Expected ${numberOfImages}, got ${panelPrompts.length}.`);
-        }
-
-        // Step 2: Generate an image for each prompt using Imagen
         const imageGenerationPromises = panelPrompts.map(panelPrompt => {
             return ai.models.generateImages({
                 model: ImageModel.IMAGEN,
@@ -198,7 +167,6 @@ export const generateComicStrip = async (story: string, style: ImageStyle, apiKe
             if (response.generatedImages && response.generatedImages.length > 0) {
                 return `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
             }
-            // Throw an error or return a placeholder if a panel fails
             throw new Error("One or more story panels failed to generate.");
         });
 
@@ -221,7 +189,8 @@ export const editComicPanel = async (originalImageBase64: string, prompt: string
 
     try {
         const imagePart = base64ToGenerativePart(originalImageBase64);
-        const textPart = { text: prompt };
+        const refinedPrompt = await generateImageEditPrompt(prompt);
+        const textPart = { text: refinedPrompt };
 
         const response = await ai.models.generateContent({
             model: ImageModel.NANO_BANANA,
@@ -247,111 +216,62 @@ export const editComicPanel = async (originalImageBase64: string, prompt: string
 };
 
 
-export const generateVideoScriptsForComicStrip = async (story: string, images: GeneratedImage[], apiKey: string): Promise<string[]> => {
-    if (!apiKey) {
-      throw new Error("API Key is required to generate video scripts.");
-    }
-    const ai = new GoogleGenAI({ apiKey });
-  
-    try {
-        const imageParts = images.map(img => base64ToGenerativePart(img.src));
-        
-        const textPart = { text: `
-            **任务:** 你是一位专业的电影导演，你的目标是为一部连环画创作详细的视频分镜脚本。
-            **整体故事:** "${story}"
+export const generateVideoScriptsForComicStrip = async (story: string, images: GeneratedImage[]): Promise<string[]> => {
+    const storyboardSegments = await generateVideoStoryboard(story, images);
 
-            **指令:**
-            1.  分析所提供的图像序列。
-            2.  为每一张图片，生成一个详细的、包含丰富镜头语言的单句视频提示词（中文）。
-            3.  每个提示词必须包含摄影机运镜、景别、核心动作和情感基调。
-            4.  动作描述应生动具体，描述画面中正在发生或暗示的动作，而不是静态地描述图片。
-            5.  你必须返回一个包含 ${images.length} 个对象的JSON数组，严格遵守指定的 schema。
-        ` };
+    const scripts = storyboardSegments.map((item) => {
+        return `${item.cameraMovement}的${item.shotType}，${item.actionDescription}画面充满${item.emotionalTone}的氛围。`;
+    });
 
-        const allParts = [textPart, ...imageParts];
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: allParts },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            cameraMovement: { 
-                                type: Type.STRING,
-                                description: "电影化的摄影机运镜。例如：'缓慢推镜'、'固定镜头'、'向左摇镜'、'升降镜头下降'。"
-                            },
-                            shotType: {
-                                type: Type.STRING,
-                                description: "景别和机位角度。例如：'特写镜头'、'远景镜头'、'低角度镜头'。"
-                            },
-                            actionDescription: {
-                                type: Type.STRING,
-                                description: "生动描述核心动作的单句话。"
-                            },
-                            emotionalTone: {
-                                type: Type.STRING,
-                                description: "场景要传达的情绪。例如：'紧张悬疑'、'欢乐活泼'、'平静忧郁'。"
-                            }
-                        },
-                        required: ["cameraMovement", "shotType", "actionDescription", "emotionalTone"],
-                    },
-                },
-            },
-        });
-        
-        const jsonStr = response.text.trim();
-        const result = JSON.parse(jsonStr);
-        if (!Array.isArray(result) || result.some(item => typeof item.actionDescription !== 'string')) {
-            throw new Error("AI returned an invalid script format.");
+    if (scripts.length !== images.length) {
+        console.warn(`OpenAI兼容API返回的镜头脚本数量 (${scripts.length}) 与图片数量 (${images.length}) 不一致，将进行裁剪或填充。`);
+        const adjustedScripts = new Array(images.length).fill('');
+        for (let i = 0; i < Math.min(scripts.length, images.length); i++) {
+            adjustedScripts[i] = scripts[i];
         }
-        
-        const scripts = result.map((item: {cameraMovement: string, shotType: string, actionDescription: string, emotionalTone: string}) => {
-            return `${item.cameraMovement}的${item.shotType}，${item.actionDescription}画面充满${item.emotionalTone}的氛围。`;
-        });
-
-
-        if (scripts.length !== images.length) {
-            console.warn(`AI returned ${scripts.length} scripts, but expected ${images.length}. Truncating/padding.`);
-            // Adjust the array size to match the number of images
-            const adjustedScripts = new Array(images.length).fill('');
-            for (let i = 0; i < Math.min(scripts.length, images.length); i++) {
-                adjustedScripts[i] = scripts[i];
-            }
-            return adjustedScripts;
-        }
-
-        return scripts;
-
-    } catch (error) {
-        throw handleApiError(error);
+        return adjustedScripts;
     }
+
+    return scripts;
 };
 
 
-export const generateTextToImage = async (prompt: string, negativePrompt: string, apiKey: string, numberOfImages: number, aspectRatio: AspectRatio): Promise<string[]> => {
+export const generateTextToImage = async (
+  prompt: string,
+  keywords: string[],
+  negativePrompt: string,
+  apiKey: string,
+  numberOfImages: number,
+  aspectRatio: AspectRatio,
+): Promise<string[]> => {
     if (!apiKey) {
       throw new Error("API Key is required to generate images.");
     }
     const ai = new GoogleGenAI({ apiKey });
-  
+
     try {
+      const { positivePrompt, negativePrompt: refinedNegativePrompt } = await generateTextToImagePrompt(
+        prompt,
+        keywords,
+        aspectRatio,
+        numberOfImages,
+        negativePrompt,
+      );
+
       const config: GenerateImagesConfig = {
         numberOfImages: numberOfImages,
         outputMimeType: 'image/jpeg',
         aspectRatio: aspectRatio,
       };
 
-      if (negativePrompt && negativePrompt.trim()) {
-        config.negativePrompt = negativePrompt.trim();
+      const finalNegativePrompt = refinedNegativePrompt?.trim() || negativePrompt.trim();
+      if (finalNegativePrompt) {
+        config.negativePrompt = finalNegativePrompt;
       }
 
       const response = await ai.models.generateImages({
         model: ImageModel.IMAGEN,
-        prompt: prompt,
+        prompt: positivePrompt,
         config: config,
       });
   
@@ -395,10 +315,11 @@ export const generateFromImageAndPrompt = async (prompt: string, files: File[], 
 
   try {
     const imageParts = await Promise.all(files.map(fileToGenerativePart));
+    const refinedPrompt = await generateImageEditPrompt(prompt);
 
     const allParts = [
       ...imageParts,
-      { text: `Based on the provided image(s), generate exactly 1 distinct image from the following prompt: "${prompt}"` },
+      { text: `Using the provided reference image(s), ${refinedPrompt}` },
     ];
 
     const response = await ai.models.generateContent({
@@ -442,16 +363,10 @@ export const generateWithStyleInspiration = async (
 
   try {
     const imagePart = await fileToGenerativePart(referenceImageFile);
-
-    const strengthPrompts: Record<InspirationStrength, string> = {
-      low: `Subtly inspired by the artistic style, color palette, and overall mood from the provided image, generate exactly 1 new distinct image depicting the following subject: "${newPrompt}". Do not replicate the subject of the reference image. The new subject should be the primary focus.`,
-      medium: `Strictly using the artistic style, color palette, and overall mood from the provided image as a reference, generate exactly 1 new distinct image depicting the following subject: "${newPrompt}". Do not replicate the subject of the reference image.`,
-      high: `Strictly and heavily adhere to the artistic style, color palette, texture, and overall mood from the provided image. Use it as a strong style template to generate exactly 1 new distinct image depicting: "${newPrompt}". Do not replicate the subject of the reference image.`,
-      veryHigh: `Replicate the provided image's artistic style, color palette, texture, and overall mood almost identically. Use it as an exact style template to generate exactly 1 new distinct image depicting: "${newPrompt}". The new image should look as if it was created by the same artist. Do not replicate the subject of the reference image.`
-    };
+    const refinedPrompt = await generateStyleInspirationPrompt(newPrompt, strength);
 
     const textPart = {
-      text: strengthPrompts[strength]
+      text: refinedPrompt
     };
 
     const allParts = [imagePart, textPart];
@@ -492,8 +407,9 @@ export const generateInpainting = async (prompt: string, originalImageFile: File
   const model = 'gemini-2.5-flash-image-preview';
 
   try {
-    const textPart = { 
-      text: `Task: Inpainting. Using the provided mask, replace the masked (white) area of the original image with this content: "${prompt}". The new content should blend seamlessly with the rest of the image.` 
+    const refinedPrompt = await generateInpaintingPrompt(prompt);
+    const textPart = {
+      text: `Task: Inpainting. Using the provided mask, replace the masked (white) area of the original image with content described as: ${refinedPrompt}`
     };
     const originalImagePart = await fileToGenerativePart(originalImageFile);
     const maskPart = await fileToGenerativePart(maskFile);
@@ -539,12 +455,13 @@ export const generateVideo = async (prompt: string, startFile: File, aspectRatio
         zoomOut: 'The camera slowly zooms out, revealing more of the scene. ',
     };
 
-    const fullPrompt = movementPrompts[cameraMovement] + prompt;
+    const movementDescriptor = movementPrompts[cameraMovement];
+    const refinedPrompt = await generateVideoPrompt(`${prompt}\n\nCamera instruction: ${movementDescriptor}`, cameraMovement);
     const imagePart = await fileToGenerativePart(startFile);
-    
+
     const requestPayload: any = {
         model: 'veo-2.0-generate-001',
-        prompt: fullPrompt,
+        prompt: refinedPrompt,
         image: {
             imageBytes: imagePart.inlineData.data,
             mimeType: imagePart.inlineData.mimeType,
@@ -575,15 +492,13 @@ export const generateVideoTransition = async (
     }
     const ai = new GoogleGenAI({ apiKey });
 
-    const fullPrompt = `Create a very short, 1.5-second seamless video transition. The video must start with the provided image. Then, smoothly and cinematically animate it to transition into the following scene: "${nextSceneScript}".
-    The overall story is about: "${storyContext}".
-    CRITICAL: Maintain this art style throughout the transition: ${stylePrompts[style]}`;
-    
+    const refinedPrompt = await generateVideoTransitionPrompt(nextSceneScript, storyContext, stylePrompts[style]);
+
     const imagePart = base64ToGenerativePart(startImage.src);
-    
+
     const requestPayload: any = {
         model: 'veo-2.0-generate-001',
-        prompt: fullPrompt,
+        prompt: refinedPrompt,
         image: {
             imageBytes: imagePart.inlineData.data,
             mimeType: imagePart.inlineData.mimeType,
