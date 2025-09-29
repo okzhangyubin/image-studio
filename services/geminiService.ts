@@ -2,6 +2,7 @@
 
 import { GoogleGenAI, Modality, GenerateImagesConfig } from "@google/genai";
 import { ImageStyle, CameraMovement, ImageModel, AspectRatio, InspirationStrength, GeneratedImage } from '../types';
+
 import {
   generateComicPanelPrompts,
   generateVideoStoryboard,
@@ -13,6 +14,7 @@ import {
   generateVideoPrompt,
   generateVideoTransitionPrompt,
 } from './openAITextService';
+import { generateComicPanelPrompts, generateVideoStoryboard } from './openAITextService';
 
 const stylePrompts = {
   [ImageStyle.ILLUSTRATION]: "A modern flat illustration style. Use simple shapes, bold colors, and clean lines. Avoid gradients and complex textures. The characters and objects should be stylized and minimalist. Maintain consistency in this flat illustration style.",
