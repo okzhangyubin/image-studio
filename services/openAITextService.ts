@@ -23,13 +23,36 @@ interface ChatCompletionResponse {
   choices?: ChatCompletionChoice[];
 }
 
-const OPENAI_COMPATIBLE_BASE_URL = (import.meta.env.VITE_OPENAI_COMPATIBLE_BASE_URL || '').replace(/\/$/, '');
-const OPENAI_COMPATIBLE_API_KEY = import.meta.env.VITE_OPENAI_COMPATIBLE_API_KEY || '';
-const OPENAI_COMPATIBLE_TEXT_MODEL = import.meta.env.VITE_OPENAI_COMPATIBLE_TEXT_MODEL || 'gpt-4o-mini';
+const getEnvValue = (...keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = (import.meta.env as Record<string, string | undefined>)[key] ?? process.env?.[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+const rawBaseUrl = getEnvValue(
+  'VITE_OPENAI_COMPATIBLE_BASE_URL',
+  'VITE_OPENAI_COMPATIBLE_API_BASE_URL',
+  'VITE_OPENAI_COMPATIBLE_BASEURL',
+);
+const OPENAI_COMPATIBLE_BASE_URL = (rawBaseUrl || '').replace(/\/$/, '');
+const OPENAI_COMPATIBLE_API_KEY = getEnvValue(
+  'VITE_OPENAI_COMPATIBLE_API_KEY',
+  'VITE_OPENAI_COMPATIBLE_KEY',
+  'OPENAI_COMPATIBLE_API_KEY',
+) || '';
+const OPENAI_COMPATIBLE_TEXT_MODEL = getEnvValue(
+  'VITE_OPENAI_COMPATIBLE_TEXT_MODEL',
+  'VITE_OPENAI_COMPATIBLE_API_MODEL',
+  'VITE_OPENAI_COMPATIBLE_MODEL',
+) || 'gpt-4o-mini';
 
 const ensureOpenAIConfig = () => {
   if (!OPENAI_COMPATIBLE_BASE_URL) {
-    throw new Error('OpenAI兼容API地址未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_BASE_URL。');
+    throw new Error('OpenAI兼容API地址未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_BASE_URL 或 VITE_OPENAI_COMPATIBLE_API_BASE_URL。');
   }
   if (!OPENAI_COMPATIBLE_API_KEY) {
     throw new Error('OpenAI兼容API密钥未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_API_KEY。');
