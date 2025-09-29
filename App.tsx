@@ -24,7 +24,6 @@ import { generateIllustratedCards, generateTextToImage, generateComicStrip, gene
 import { addHistory, getAllHistory, clearHistory, removeHistoryItem, getTags, saveTags, findHistoryBySourceImage } from './services/historyService';
 import { resizeImage, createThumbnail, base64ToFile, fileToBase64 } from './utils/imageUtils';
 import { stitchVideos } from './utils/videoUtils';
-import { buildStructuredPrompt } from './utils/promptUtils';
 import { DownloadIcon } from './components/icons/DownloadIcon';
 import { StarIcon } from './components/icons/StarIcon';
 import { SparklesIcon } from './components/icons/SparklesIcon';
@@ -113,7 +112,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // 首先检查环境变量中的API密钥
-    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY ?? (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
     if (envApiKey) {
       setApiKey(envApiKey);
       setIsEnvApiKey(true); // 标记使用环境变量中的API Key
@@ -275,7 +274,7 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const scripts = await generateVideoScriptsForComicStrip(comicStripStory, comicStripImages, apiKey);
+      const scripts = await generateVideoScriptsForComicStrip(comicStripStory, comicStripImages);
       setComicStripVideoScripts(scripts);
       setComicStripVideoGenerationPhase('editing');
     } catch (err) {
@@ -701,8 +700,14 @@ const handleComicPanelEditComplete = async (index: number, newImageSrc: string, 
     setTextToImageImages([]);
 
     try {
-        const finalPrompt = buildStructuredPrompt(textToImagePrompt, textToImageKeywords);
-        const imageUrls = await generateTextToImage(finalPrompt, textToImageNegativePrompt, apiKey, textToImageNumImages, textToImageAspectRatio);
+        const imageUrls = await generateTextToImage(
+          textToImagePrompt,
+          textToImageKeywords,
+          textToImageNegativePrompt,
+          apiKey,
+          textToImageNumImages,
+          textToImageAspectRatio,
+        );
         const resizedImageUrls = await Promise.all(imageUrls.map(src => resizeImage(src, 800)));
         const imagesWithIds: GeneratedImage[] = resizedImageUrls.map((src, index) => ({
             id: `${Date.now()}-${index}`,
