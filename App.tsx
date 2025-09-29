@@ -24,7 +24,6 @@ import { generateIllustratedCards, generateTextToImage, generateComicStrip, gene
 import { addHistory, getAllHistory, clearHistory, removeHistoryItem, getTags, saveTags, findHistoryBySourceImage } from './services/historyService';
 import { resizeImage, createThumbnail, base64ToFile, fileToBase64 } from './utils/imageUtils';
 import { stitchVideos } from './utils/videoUtils';
-import { buildStructuredPrompt } from './utils/promptUtils';
 import { DownloadIcon } from './components/icons/DownloadIcon';
 import { StarIcon } from './components/icons/StarIcon';
 import { SparklesIcon } from './components/icons/SparklesIcon';
@@ -701,8 +700,14 @@ const handleComicPanelEditComplete = async (index: number, newImageSrc: string, 
     setTextToImageImages([]);
 
     try {
-        const finalPrompt = buildStructuredPrompt(textToImagePrompt, textToImageKeywords);
-        const imageUrls = await generateTextToImage(finalPrompt, textToImageNegativePrompt, apiKey, textToImageNumImages, textToImageAspectRatio);
+        const imageUrls = await generateTextToImage(
+          textToImagePrompt,
+          textToImageKeywords,
+          textToImageNegativePrompt,
+          apiKey,
+          textToImageNumImages,
+          textToImageAspectRatio,
+        );
         const resizedImageUrls = await Promise.all(imageUrls.map(src => resizeImage(src, 800)));
         const imagesWithIds: GeneratedImage[] = resizedImageUrls.map((src, index) => ({
             id: `${Date.now()}-${index}`,
