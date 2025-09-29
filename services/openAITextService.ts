@@ -1,4 +1,6 @@
 import { AspectRatio, CameraMovement, GeneratedImage, InspirationStrength } from '../types';
+import { GeneratedImage } from '../types';
+
 
 interface ChatMessageContentPart {
   type: 'text' | 'input_text' | 'input_image';
@@ -31,6 +33,8 @@ const getEnvValue = (...keys: string[]): string | undefined => {
 
   for (const key of keys) {
     const value = importMetaEnv?.[key] ?? processEnv?.[key];
+  for (const key of keys) {
+    const value = (import.meta.env as Record<string, string | undefined>)[key] ?? process.env?.[key];
     if (typeof value === 'string' && value.trim() !== '') {
       return value;
     }
@@ -58,6 +62,13 @@ const OPENAI_COMPATIBLE_TEXT_MODEL = getEnvValue(
 const ensureOpenAIConfig = () => {
   if (!OPENAI_COMPATIBLE_BASE_URL) {
     throw new Error('OpenAI兼容API地址未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_BASE_URL 或 VITE_OPENAI_COMPATIBLE_API_BASE_URL。');
+const OPENAI_COMPATIBLE_BASE_URL = (import.meta.env.VITE_OPENAI_COMPATIBLE_BASE_URL || '').replace(/\/$/, '');
+const OPENAI_COMPATIBLE_API_KEY = import.meta.env.VITE_OPENAI_COMPATIBLE_API_KEY || '';
+const OPENAI_COMPATIBLE_TEXT_MODEL = import.meta.env.VITE_OPENAI_COMPATIBLE_TEXT_MODEL || 'gpt-4o-mini';
+
+const ensureOpenAIConfig = () => {
+  if (!OPENAI_COMPATIBLE_BASE_URL) {
+    throw new Error('OpenAI兼容API地址未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_BASE_URL。');
   }
   if (!OPENAI_COMPATIBLE_API_KEY) {
     throw new Error('OpenAI兼容API密钥未配置。请在环境变量中设置 VITE_OPENAI_COMPATIBLE_API_KEY。');
@@ -245,6 +256,23 @@ export const generateComicPanelPrompts = async (
   }
 
   return parsed.panels as string[];
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed?.panels)) {
+      throw new Error('invalid');
+    }
+
+    if (parsed.panels.length !== numberOfImages) {
+      throw new Error(`OpenAI兼容API返回的分镜数量与预期不符（期望${numberOfImages}个）。`);
+    }
+
+    return parsed.panels;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'invalid') {
+      throw new Error('OpenAI兼容API返回了无效的连环画分镜格式。');
+    }
+    throw new Error('解析OpenAI兼容API返回的连环画分镜时失败。');
+  }
 };
 
 export const generateVideoStoryboard = async (
@@ -856,4 +884,21 @@ export const generateVideoTransitionPrompt = async (
   }
 
   return parsed.prompt.trim();
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed?.segments)) {
+      throw new Error('invalid');
+    }
+
+    if (parsed.segments.length !== images.length) {
+      throw new Error(`OpenAI兼容API返回的镜头脚本数量与预期不符（期望${images.length}个）。`);
+    }
+
+    return parsed.segments;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'invalid') {
+      throw new Error('OpenAI兼容API返回了无效的镜头脚本格式。');
+    }
+    throw new Error('解析OpenAI兼容API返回的镜头脚本时失败。');
+  }
 };

@@ -14,6 +14,19 @@ import {
   generateVideoTransitionPrompt,
 } from './openAITextService';
 
+import {
+  generateComicPanelPrompts,
+  generateVideoStoryboard,
+  generateWikiCardPrompts,
+  generateTextToImagePrompt,
+  generateImageEditPrompt,
+  generateStyleInspirationPrompt,
+  generateInpaintingPrompt,
+  generateVideoPrompt,
+  generateVideoTransitionPrompt,
+} from './openAITextService';
+import { generateComicPanelPrompts, generateVideoStoryboard } from './openAITextService';
+
 const stylePrompts = {
   [ImageStyle.ILLUSTRATION]: "A modern flat illustration style. Use simple shapes, bold colors, and clean lines. Avoid gradients and complex textures. The characters and objects should be stylized and minimalist. Maintain consistency in this flat illustration style.",
   [ImageStyle.CLAY]: "A charming and tactile claymation style. All objects and characters should appear as if they are sculpted from modeling clay, with visible textures like fingerprints and tool marks. Use a vibrant, saturated color palette and soft, dimensional lighting to enhance the handmade feel. Maintain consistency in this claymation style.",
