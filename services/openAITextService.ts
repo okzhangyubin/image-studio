@@ -79,6 +79,44 @@ const extractMessageContent = (content: string | ChatMessageContentPart[] | unde
     .trim();
 };
 
+const sanitizeJsonLikeContent = (raw: string): string => {
+  const trimmed = raw.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.startsWith('```')) {
+    const lines = trimmed.split('\n');
+    const codeFenceCloseIndex = lines.findIndex((line, index) => index !== 0 && line.trim() === '```');
+    if (codeFenceCloseIndex !== -1) {
+      return lines.slice(1, codeFenceCloseIndex).join('\n').trim();
+    }
+    return lines.slice(1).join('\n').trim();
+  }
+
+  return trimmed;
+};
+
+const parseJsonContent = <T>(raw: string, context: string): T => {
+  const sanitized = sanitizeJsonLikeContent(raw);
+
+  if (!sanitized) {
+    throw new Error(`${context}：OpenAI兼容API未返回任何内容。`);
+  }
+
+  try {
+    return JSON.parse(sanitized) as T;
+  } catch (error) {
+    console.error('Failed to parse JSON response from OpenAI compatible API:', {
+      context,
+      raw,
+      error,
+    });
+    throw new Error(`${context}：解析OpenAI兼容API返回的JSON失败。`);
+  }
+};
+
 const callOpenAIChat = async (body: Record<string, unknown>): Promise<ChatCompletionResponse> => {
   ensureOpenAIConfig();
 
@@ -191,23 +229,17 @@ export const generateComicPanelPrompts = async (
     throw new Error('OpenAI兼容API未返回任何连环画分镜描述。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed?.panels)) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ panels: unknown }>(content, '生成连环画分镜');
 
-    if (parsed.panels.length !== numberOfImages) {
-      throw new Error(`OpenAI兼容API返回的分镜数量与预期不符（期望${numberOfImages}个）。`);
-    }
-
-    return parsed.panels;
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的连环画分镜格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的连环画分镜时失败。');
+  if (!Array.isArray(parsed?.panels)) {
+    throw new Error('OpenAI兼容API返回了无效的连环画分镜格式。');
   }
+
+  if (parsed.panels.length !== numberOfImages) {
+    throw new Error(`OpenAI兼容API返回的分镜数量与预期不符（期望${numberOfImages}个）。`);
+  }
+
+  return parsed.panels as string[];
 };
 
 export const generateVideoStoryboard = async (
@@ -293,23 +325,17 @@ export const generateVideoStoryboard = async (
     throw new Error('OpenAI兼容API未返回任何镜头脚本。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed?.segments)) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ segments: unknown }>(content, '生成镜头脚本');
 
-    if (parsed.segments.length !== images.length) {
-      throw new Error(`OpenAI兼容API返回的镜头脚本数量与预期不符（期望${images.length}个）。`);
-    }
-
-    return parsed.segments;
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的镜头脚本格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的镜头脚本时失败。');
+  if (!Array.isArray(parsed?.segments)) {
+    throw new Error('OpenAI兼容API返回了无效的镜头脚本格式。');
   }
+
+  if (parsed.segments.length !== images.length) {
+    console.warn(`OpenAI兼容API返回的镜头脚本数量 (${parsed.segments.length}) 与图片数量 (${images.length}) 不一致，将进行裁剪或填充。`);
+  }
+
+  return parsed.segments as Array<{ cameraMovement: string; shotType: string; actionDescription: string; emotionalTone: string }>;
 };
 
 export const generateWikiCardPrompts = async (
@@ -383,23 +409,17 @@ export const generateWikiCardPrompts = async (
     throw new Error('OpenAI兼容API未返回任何图解卡片描述。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed?.cards)) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ cards: unknown }>(content, '生成图解卡片提示');
 
-    if (parsed.cards.length !== numberOfCards) {
-      throw new Error(`OpenAI兼容API返回的卡片数量与预期不符（期望${numberOfCards}个）。`);
-    }
-
-    return parsed.cards;
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的图解卡片格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的图解卡片时失败。');
+  if (!Array.isArray(parsed?.cards)) {
+    throw new Error('OpenAI兼容API返回了无效的图解卡片格式。');
   }
+
+  if (parsed.cards.length !== numberOfCards) {
+    throw new Error(`OpenAI兼容API返回的卡片数量与预期不符（期望${numberOfCards}个）。`);
+  }
+
+  return parsed.cards as string[];
 };
 
 export const generateTextToImagePrompt = async (
@@ -480,27 +500,24 @@ export const generateTextToImagePrompt = async (
     throw new Error('OpenAI兼容API未返回任何文生图提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.positivePrompt !== 'string' || !parsed.positivePrompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{
+    positivePrompt?: unknown;
+    negativePrompt?: unknown;
+  }>(content, '生成文生图提示词');
 
-    const result: { positivePrompt: string; negativePrompt?: string } = {
-      positivePrompt: parsed.positivePrompt.trim(),
-    };
-
-    if (typeof parsed.negativePrompt === 'string' && parsed.negativePrompt.trim()) {
-      result.negativePrompt = parsed.negativePrompt.trim();
-    }
-
-    return result;
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的文生图提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的文生图提示词时失败。');
+  if (typeof parsed?.positivePrompt !== 'string' || !parsed.positivePrompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的文生图提示词格式。');
   }
+
+  const result: { positivePrompt: string; negativePrompt?: string } = {
+    positivePrompt: parsed.positivePrompt.trim(),
+  };
+
+  if (typeof parsed.negativePrompt === 'string' && parsed.negativePrompt.trim()) {
+    result.negativePrompt = parsed.negativePrompt.trim();
+  }
+
+  return result;
 };
 
 export const generateImageEditPrompt = async (prompt: string): Promise<string> => {
@@ -554,19 +571,13 @@ export const generateImageEditPrompt = async (prompt: string): Promise<string> =
     throw new Error('OpenAI兼容API未返回任何图像编辑提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ prompt?: unknown }>(content, '生成图像编辑提示词');
 
-    return parsed.prompt.trim();
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的图像编辑提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的图像编辑提示词时失败。');
+  if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的图像编辑提示词格式。');
   }
+
+  return parsed.prompt.trim();
 };
 
 const inspirationStrengthMap: Record<InspirationStrength, string> = {
@@ -634,19 +645,13 @@ export const generateStyleInspirationPrompt = async (
     throw new Error('OpenAI兼容API未返回任何风格借鉴提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ prompt?: unknown }>(content, '生成风格借鉴提示词');
 
-    return parsed.prompt.trim();
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的风格借鉴提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的风格借鉴提示词时失败。');
+  if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的风格借鉴提示词格式。');
   }
+
+  return parsed.prompt.trim();
 };
 
 export const generateInpaintingPrompt = async (prompt: string): Promise<string> => {
@@ -700,19 +705,13 @@ export const generateInpaintingPrompt = async (prompt: string): Promise<string> 
     throw new Error('OpenAI兼容API未返回任何局部重绘提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ prompt?: unknown }>(content, '生成局部重绘提示词');
 
-    return parsed.prompt.trim();
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的局部重绘提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的局部重绘提示词时失败。');
+  if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的局部重绘提示词格式。');
   }
+
+  return parsed.prompt.trim();
 };
 
 export const generateVideoPrompt = async (
@@ -773,19 +772,13 @@ export const generateVideoPrompt = async (
     throw new Error('OpenAI兼容API未返回任何视频生成提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ prompt?: unknown }>(content, '生成视频提示词');
 
-    return parsed.prompt.trim();
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的视频提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的视频提示词时失败。');
+  if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的视频提示词格式。');
   }
+
+  return parsed.prompt.trim();
 };
 
 export const generateVideoTransitionPrompt = async (
@@ -851,17 +844,11 @@ export const generateVideoTransitionPrompt = async (
     throw new Error('OpenAI兼容API未返回任何转场提示词。');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
-      throw new Error('invalid');
-    }
+  const parsed = parseJsonContent<{ prompt?: unknown }>(content, '生成视频转场提示词');
 
-    return parsed.prompt.trim();
-  } catch (error) {
-    if (error instanceof Error && error.message === 'invalid') {
-      throw new Error('OpenAI兼容API返回了无效的转场提示词格式。');
-    }
-    throw new Error('解析OpenAI兼容API返回的转场提示词时失败。');
+  if (typeof parsed?.prompt !== 'string' || !parsed.prompt.trim()) {
+    throw new Error('OpenAI兼容API返回了无效的转场提示词格式。');
   }
+
+  return parsed.prompt.trim();
 };
