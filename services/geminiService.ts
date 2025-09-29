@@ -2,6 +2,17 @@
 
 import { GoogleGenAI, Modality, GenerateImagesConfig } from "@google/genai";
 import { ImageStyle, CameraMovement, ImageModel, AspectRatio, InspirationStrength, GeneratedImage } from '../types';
+import {
+  generateComicPanelPrompts,
+  generateVideoStoryboard,
+  generateWikiCardPrompts,
+  generateTextToImagePrompt,
+  generateImageEditPrompt,
+  generateStyleInspirationPrompt,
+  generateInpaintingPrompt,
+  generateVideoPrompt,
+  generateVideoTransitionPrompt,
+} from './openAITextService';
 
 import {
   generateComicPanelPrompts,

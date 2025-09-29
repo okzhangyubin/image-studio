@@ -112,7 +112,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // 首先检查环境变量中的API密钥
-    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY ?? (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
     if (envApiKey) {
       setApiKey(envApiKey);
       setIsEnvApiKey(true); // 标记使用环境变量中的API Key

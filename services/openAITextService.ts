@@ -1,6 +1,7 @@
 import { AspectRatio, CameraMovement, GeneratedImage, InspirationStrength } from '../types';
 import { GeneratedImage } from '../types';
 
+
 interface ChatMessageContentPart {
   type: 'text' | 'input_text' | 'input_image';
   text?: string;
@@ -25,6 +26,13 @@ interface ChatCompletionResponse {
 }
 
 const getEnvValue = (...keys: string[]): string | undefined => {
+  const importMetaEnv = (import.meta as ImportMeta & {
+    env?: Record<string, string | undefined>;
+  }).env;
+  const processEnv = typeof process !== 'undefined' ? process.env : undefined;
+
+  for (const key of keys) {
+    const value = importMetaEnv?.[key] ?? processEnv?.[key];
   for (const key of keys) {
     const value = (import.meta.env as Record<string, string | undefined>)[key] ?? process.env?.[key];
     if (typeof value === 'string' && value.trim() !== '') {
